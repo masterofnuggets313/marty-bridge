@@ -94,6 +94,19 @@ def cmd_down(args) -> int:
     return 0
 
 
+def extension_dir() -> str:
+    """Папка расширения рядом с пакетом. Нужна для установки в браузер."""
+    from pathlib import Path
+
+    for candidate in (
+        Path(__file__).resolve().parents[1] / "extension",
+        Path.cwd() / "extension",
+    ):
+        if (candidate / "manifest.json").exists():
+            return str(candidate)
+    return ""
+
+
 def cmd_status(args) -> int:
     ok = True
     print(f"marty-bridge {__version__}")
@@ -113,6 +126,9 @@ def cmd_status(args) -> int:
             print(f"расширение: на связи, версия {pong.get('version')}")
         except RuntimeError as exc:
             print(f"расширение: НЕТ ({exc})")
+            folder = extension_dir()
+            if folder:
+                print(f"загрузите эту папку как распакованное расширение: {folder}")
             ok = False
 
     try:
