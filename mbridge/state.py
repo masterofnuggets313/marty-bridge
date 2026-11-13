@@ -1,0 +1,63 @@
+"""Состояние между вызовами: рабочая вкладка, флаг автозапуска, каталог данных.
+
+Каталог по умолчанию `~/.marty-bridge`, переопределяется переменной MB_HOME.
+Держим состояние вне пакета: после обновления пакета рабочая вкладка не теряется.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+
+
+def home() -> Path:
+    """Каталог данных. Создается при первом обращении."""
+    raw = os.environ.get("MB_HOME")
+    path = Path(raw).expanduser() if raw else Path.home() / ".marty-bridge"
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+    return path
+
+
+def _file() -> Path:
+    return home() / "state.json"
+
+
+def load() -> dict:
+    try:
+        return json.loads(_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def save(data: dict) -> None:
+    try:
+        _file().write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def tab() -> int | None:
+    """Активная рабочая вкладка. None значит «взять текущую в браузере»."""
+    value = load().get("tab")
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def set_tab(tab_id: int) -> int:
+    save({**load(), "tab": int(tab_id)})
+    return int(tab_id)
+
+
+def off_flag() -> Path:
+    """Файл, который выключает автозапуск моста."""
+    return home() / "bridge.off"
+
+
+def log_path(name: str) -> Path:
+    return home() / name
