@@ -378,7 +378,22 @@ BROWSER_COMMANDS = {
 }
 
 
+def _prepare_console() -> None:
+    """Русский текст в выводе не должен падать на кодировке консоли.
+
+    В Windows при перенаправлении вывод пишется не в utf-8, а в cp1252 или cp866,
+    и печать кириллицы роняет процесс с UnicodeEncodeError. На живом терминале
+    Python и так использует utf-8, поэтому переключение безопасно.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    _prepare_console()
     args = build_parser().parse_args(argv)
     if args.command in BROWSER_COMMANDS:
         if not _need_bridge():

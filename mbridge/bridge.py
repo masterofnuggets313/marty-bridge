@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import threading
 import time
 import uuid
@@ -243,6 +244,12 @@ def log(text: str) -> None:
 
 
 def main() -> int:
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
+
     parser = argparse.ArgumentParser(description="Marty Bridge: локальный мост")
     parser.add_argument(
         "--port", type=int, default=int(os.environ.get("MB_PORT") or 8765)
