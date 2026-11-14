@@ -61,3 +61,27 @@ def off_flag() -> Path:
 
 def log_path(name: str) -> Path:
     return home() / name
+
+
+def extension_dir() -> str:
+    """Папка расширения, которую человек грузит в браузер.
+
+    Порядок: явная переменная MB_EXTENSION_DIR, затем папка рядом с пакетом,
+    затем текущий каталог. Пустая строка значит «не нашли».
+    """
+    raw = os.environ.get("MB_EXTENSION_DIR")
+    if raw:
+        return raw
+    roots = []
+    try:
+        roots.append(Path(__file__).resolve().parents[1] / "extension")
+    except (IndexError, OSError):
+        pass
+    roots.append(Path.cwd() / "extension")
+    for candidate in roots:
+        try:
+            if (candidate / "manifest.json").exists():
+                return str(candidate)
+        except OSError:
+            continue
+    return ""

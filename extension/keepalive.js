@@ -3,6 +3,15 @@
 
 const BASE = "http://127.0.0.1:8765";
 
+// Версию берем из манифеста, а не пишем руками: иначе она разъедется с папкой.
+const VER = (() => {
+  try {
+    return chrome.runtime.getManifest().version;
+  } catch (e) {
+    return "";
+  }
+})();
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function status(text, ok) {
@@ -18,7 +27,8 @@ async function loop() {
   for (;;) {
     let cmd = null;
     try {
-      const r = await fetch(BASE + "/poll?wait=25", { cache: "no-store" });
+      const q = "/poll?wait=25" + (VER ? "&v=" + encodeURIComponent(VER) : "");
+      const r = await fetch(BASE + q, { cache: "no-store" });
       cmd = await r.json();
       errors = 0;
       status("на связи", true);

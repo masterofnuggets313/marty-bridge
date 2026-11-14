@@ -96,15 +96,7 @@ def cmd_down(args) -> int:
 
 def extension_dir() -> str:
     """Папка расширения рядом с пакетом. Нужна для установки в браузер."""
-    from pathlib import Path
-
-    for candidate in (
-        Path(__file__).resolve().parents[1] / "extension",
-        Path.cwd() / "extension",
-    ):
-        if (candidate / "manifest.json").exists():
-            return str(candidate)
-    return ""
+    return state.extension_dir()
 
 
 def cmd_status(args) -> int:
