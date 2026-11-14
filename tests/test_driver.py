@@ -1,4 +1,5 @@
 import json
+import sys
 
 import pytest
 
@@ -76,8 +77,12 @@ def test_ensure_falls_back_without_breakaway(monkeypatch, tmp_path):
 
     assert driver.ensure(verbose=False) is True
     assert len(flags) == 2
-    assert flags[1] != flags[0]
-    assert flags[1] & getattr(driver.subprocess, "DETACHED_PROCESS", 0)
+    if sys.platform == "win32":
+        assert flags[1] != flags[0]
+        assert flags[1] & getattr(driver.subprocess, "DETACHED_PROCESS", 0)
+    else:
+        # на Linux флагов создания процессов Windows нет, вторая попытка идет без них
+        assert flags[1] == 0
 
 
 def test_ensure_reports_when_both_spawns_fail(monkeypatch, tmp_path, capsys):
