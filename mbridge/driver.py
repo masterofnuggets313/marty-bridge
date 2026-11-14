@@ -81,24 +81,35 @@ def ensure(verbose: bool = True) -> bool:
             )
         return False
 
-    flags = 0
-    for name in ("DETACHED_PROCESS", "CREATE_NEW_PROCESS_GROUP", "CREATE_BREAKAWAY_FROM_JOB"):
-        flags |= getattr(subprocess, name, 0)
-    try:
-        subprocess.Popen(
-            [sys.executable, "-m", "mbridge.supervisor"],
-            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            creationflags=flags,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            close_fds=True,
-        )
-    except OSError as exc:
+    base = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(
+        subprocess, "CREATE_NEW_PROCESS_GROUP", 0
+    )
+    breakaway = base | getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0)
+    cwd = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    # Отрыв от job-объекта запрещен, если процесс запущен под чужой песочницей:
+    # Windows отвечает «Отказано в доступе». Тогда поднимаем без отрыва, иначе
+    # `mb up` вообще не работает из ограниченных оболочек.
+    last = None
+    for flags in (breakaway, base):
+        try:
+            subprocess.Popen(
+                [sys.executable, "-m", "mbridge.supervisor"],
+                cwd=cwd,
+                creationflags=flags,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=True,
+            )
+            last = None
+            break
+        except OSError as exc:
+            last = exc
+    if last is not None:
         if verbose:
             print(
                 json.dumps(
-                    {"ok": False, "error": f"не смог поднять наставника: {exc}"},
+                    {"ok": False, "error": f"не смог поднять наставника: {last}"},
                     ensure_ascii=False,
                 )
             )

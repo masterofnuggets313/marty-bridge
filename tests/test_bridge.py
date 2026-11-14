@@ -179,6 +179,19 @@ def test_api_state_counts_failures(bridge):
     assert "не ответило" in data["feed"][0]["error"]
 
 
+def test_api_state_hint_is_computed_not_hardcoded(bridge, monkeypatch, tmp_path):
+    """Путь к папке расширения считается на месте, а не зашит в код."""
+    monkeypatch.setenv("MB_EXTENSION_DIR", str(tmp_path))
+    assert get(bridge, "/api/state")["hint"] == str(tmp_path)
+
+
+def test_dashboard_page_has_no_local_paths():
+    """В саму страницу не должен попасть ни один путь с диска."""
+    page = bridge_mod.DASHBOARD_PAGE
+    for marker in ("C:\\\\", "C:/", "/home/", "/Users/", "Geroin", "AppData"):
+        assert marker not in page, f"в странице оказался путь: {marker}"
+
+
 def test_summary_of_variants():
     assert bridge_mod.summary_of({"kind": "open", "url": "https://a"}) == "open: https://a"
     assert bridge_mod.summary_of({"kind": "eval", "code": "1+1"}) == "eval: 1+1"
