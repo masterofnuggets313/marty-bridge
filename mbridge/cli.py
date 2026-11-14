@@ -203,6 +203,22 @@ def cmd_text(args) -> int:
     return 0
 
 
+def cmd_reload(args) -> int:
+    """Перечитать файлы расширения с диска.
+
+    Полезно после правки background.js или keepalive.js: браузер подхватывает
+    новую версию без перезапуска, вкладка-сторож перезагружается сама.
+    """
+    try:
+        client.send({"kind": "reload"}, 10)
+    except RuntimeError as exc:
+        print(f"не удалось: {exc}")
+        print("Если версия расширения старая, нажмите «Обновить» на странице chrome://extensions")
+        return 1
+    print("расширение перечитывает файлы, вкладка-сторож перезагрузится сама")
+    return 0
+
+
 def cmd_js(args) -> int:
     _json(driver.eval_with_lib(args.code, _state_tab()))
     return 0
@@ -342,6 +358,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("text", help="текст элемента")
     p.add_argument("sel", nargs="?", default="body")
     p.set_defaults(func=cmd_text)
+
+    p = sub.add_parser("reload", help="перечитать файлы расширения без перезапуска браузера")
+    p.set_defaults(func=cmd_reload)
 
     p = sub.add_parser("js", help="выполнить JS в рабочей вкладке")
     p.add_argument("code")

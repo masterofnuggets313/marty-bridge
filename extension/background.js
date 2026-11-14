@@ -89,19 +89,75 @@ chrome.debugger.onDetach.addListener((source) => {
 });
 
 // Вкладка-сторож: без неё команды никто не заберёт с моста.
-async function ensureBridgeTab() {
+//
+// Правила, из-за которых раньше плодились дубли:
+// 1. Сравниваем адрес без хвостового слеша и без параметров: 8765 и 8765/
+//    это одна и та же вкладка.
+// 2. Если браузер стартовал в фоновом режиме и окон еще нет, вкладку не
+//    создаем. Иначе на входе в систему вылезает лишнее окно.
+// 3. Найденную вкладку не пересоздаем, а будим: Яндекс и Chrome выгружают
+//    фоновые вкладки, и у выгруженной страницы опрос не идет.
+// 4. Лишние незакрепленные дубли закрываем, закрепленную не трогаем.
+const BRIDGE_KEY = (() => {
   try {
-    const tabs = await chrome.tabs.query({ url: BASE + "/*" });
-    if (tabs.length) return tabs[0].id;
-    const t = await chrome.tabs.create({
-      url: BRIDGE_URL,
-      active: false,
-      pinned: true,
-    });
-    return t.id;
+    const u = new URL(BRIDGE_URL);
+    return u.origin + u.pathname.replace(/\/+$/, "");
   } catch (e) {
-    return null;
+    return BRIDGE_URL;
   }
+})();
+
+function sameBridge(url) {
+  if (!url) return false;
+  try {
+    const u = new URL(url);
+    return u.origin + u.pathname.replace(/\/+$/, "") === BRIDGE_KEY;
+  } catch (e) {
+    return false;
+  }
+}
+
+let ensuring = null;
+
+async function ensureBridgeTab() {
+  if (ensuring) return ensuring;
+  ensuring = (async () => {
+    try {
+      const windows = await chrome.windows.getAll();
+      // фоновый старт браузера: окна нет, создавать его мы не имеем права
+      if (!windows.length) return null;
+
+      const all = await chrome.tabs.query({});
+      const mine = all.filter((t) => sameBridge(t.url) || sameBridge(t.pendingUrl));
+
+      if (mine.length) {
+        const keep = mine.find((t) => t.pinned) || mine[0];
+        try {
+          if (keep.discarded) await chrome.tabs.reload(keep.id);
+          chrome.tabs.update(keep.id, { autoDiscardable: false }).catch(() => {});
+        } catch (e) { /* вкладку закрыли между запросами */ }
+
+        for (const t of mine) {
+          if (t.id === keep.id || t.pinned || t.active) continue;
+          chrome.tabs.remove(t.id).catch(() => {});
+        }
+        return keep.id;
+      }
+
+      const t = await chrome.tabs.create({
+        url: BRIDGE_URL,
+        active: false,
+        pinned: true,
+      });
+      chrome.tabs.update(t.id, { autoDiscardable: false }).catch(() => {});
+      return t.id;
+    } catch (e) {
+      return null;
+    } finally {
+      ensuring = null;
+    }
+  })();
+  return ensuring;
 }
 
 async function run(cmd) {
@@ -109,6 +165,13 @@ async function run(cmd) {
 
   if (kind === "ping") {
     return { pong: true, version: chrome.runtime.getManifest().version };
+  }
+
+  // Перечитать файлы расширения с диска. Ответ уходит до перезагрузки,
+  // иначе мост не узнает, что команда дошла.
+  if (kind === "reload") {
+    setTimeout(() => chrome.runtime.reload(), 150);
+    return { reloading: true };
   }
 
   if (kind === "diag") {
@@ -224,11 +287,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 });
 
 function boot() {
-  ensureBridgeTab();
   chrome.alarms.create("keep", { periodInMinutes: 1 });
+  // сессию браузер восстанавливает уже после старта воркера, поэтому сразу
+  // вкладку не создаем: иначе на входе в систему появляется лишняя
+  setTimeout(() => ensureBridgeTab(), 4000);
 }
 
 chrome.runtime.onInstalled.addListener(boot);
 chrome.runtime.onStartup.addListener(boot);
 chrome.alarms.onAlarm.addListener(() => ensureBridgeTab());
+// окно появилось, в том числе после фонового старта: самое время навести порядок
+chrome.windows.onCreated.addListener(() => setTimeout(() => ensureBridgeTab(), 2500));
 boot();

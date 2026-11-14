@@ -23,12 +23,12 @@ from . import state
 PORT = int(os.environ.get("MB_PORT") or os.environ.get("BRIDGE_PORT") or 8765)
 KEEPALIVE = f"http://127.0.0.1:{PORT}/"
 
-# Сколько секунд без опроса считаем, что вкладка закрыта.
-STALE = 90
+# Сколько секунд без опроса считаем, что вкладка не работает.
+STALE = 120
 # Не чаще одного открытия вкладки в этот интервал.
-RETRY = 300
-# После трех неудач подряд пауза, чтобы не плодить вкладки при выключенном расширении.
-RETRY_AFTER_FAILS = 1800
+RETRY = 1800
+# Больше стольких вкладок за сессию моста не открываем.
+MAX_OPENS = 2
 
 # Где искать браузер. Первый существующий путь и берем.
 BROWSERS = [
@@ -82,6 +82,30 @@ def browser_path() -> str:
     return ""
 
 
+def browser_running() -> bool:
+    """Запущен ли браузер.
+
+    Без этой проверки `browser.exe URL` не открывает вкладку, а запускает
+    браузер заново. Если человек закрыл браузер сам, наставник не должен
+    возвращать его на экран.
+    """
+    name = os.path.basename(browser_path() or "").lower()
+    if not name:
+        return False
+    try:
+        if os.name == "nt":
+            out = subprocess.run(
+                ["tasklist", "/FI", "IMAGENAME eq " + name, "/NH"],
+                capture_output=True, text=True, timeout=10,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            ).stdout.lower()
+            return name in out
+        out = subprocess.run(["pgrep", "-f", name], capture_output=True, timeout=10)
+        return out.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def open_keepalive() -> bool:
     exe = browser_path()
     if not exe:
@@ -116,6 +140,35 @@ def start_bridge() -> bool:
     return True
 
 
+def should_open_tab(
+    now: float,
+    seen: float,
+    started_at: float,
+    last_open: float,
+    opens: int,
+    ever_seen: bool,
+    browser_up: bool,
+) -> tuple[bool, str]:
+    """Открывать ли вкладку-сторож. Возвращает (решение, причина).
+
+    Вынесено отдельно, потому что именно здесь раньше появлялись дубли:
+    наставник открывал вкладку через минуту после старта моста, пока браузер
+    еще не успевал загрузить расширение.
+    """
+    silent = (now - seen) if seen else (now - started_at)
+    if silent < STALE:
+        return False, "на связи"
+    if not ever_seen:
+        return False, "расширение ни разу не подключалось"
+    if now - last_open < RETRY:
+        return False, "недавно открывали"
+    if opens >= MAX_OPENS:
+        return False, "лимит попыток исчерпан"
+    if not browser_up:
+        return False, "браузер закрыт"
+    return True, f"молчит {int(silent)} сек"
+
+
 def main() -> int:
     if state.off_flag().exists():
         log("найден bridge.off, автозапуск выключен")
@@ -124,7 +177,9 @@ def main() -> int:
     log(f"наставник запущен, python: {sys.executable}, порт: {PORT}")
 
     last_open = 0.0
-    fails = 0
+    opens = 0
+    ever_seen = False
+    warned = False
     started_at = time.time()
 
     while True:
@@ -134,39 +189,44 @@ def main() -> int:
 
         if not alive():
             log("мост не отвечает, запускаем")
+            # отметку ставим до запуска: если мост поднимется не с первого раза,
+            # окно милосердия не должно обнуляться
+            started_at = time.time()
             if not start_bridge():
                 time.sleep(30)
                 continue
             time.sleep(3)
             if alive():
                 log("мост поднялся")
-                started_at = time.time()
             continue
 
         seen = float(health().get("seen") or 0)
-        # сразу после старта моста расширение еще не успело опросить его,
-        # и это не повод открывать новую вкладку: даем минуту
-        if not seen and (time.time() - started_at) < 60:
-            time.sleep(10)
+        now = time.time()
+        if seen:
+            ever_seen = True
+            warned = False
+            opens = 0
+
+        silent = (now - seen) if seen else (now - started_at)
+        if silent < STALE:
+            time.sleep(20)
             continue
 
-        stale = (time.time() - seen) > STALE if seen else True
-        if stale:
-            # открытая вкладка сама переподключается, когда мост вернулся,
-            # поэтому даем ей 6 секунд и проверяем еще раз, иначе плодятся дубли
-            time.sleep(6)
-            seen = float(health().get("seen") or 0)
-            stale = (time.time() - seen) > STALE if seen else True
+        ok, why = should_open_tab(
+            now, seen, started_at, last_open, opens, ever_seen, browser_running()
+        )
+        if not ok:
+            if not warned:
+                log(f"вкладку не открываю: {why}")
+                warned = True
+            time.sleep(30)
+            continue
 
-        if not stale:
-            fails = 0
-
-        pause = RETRY if fails < 3 else RETRY_AFTER_FAILS
-        if stale and (time.time() - last_open) > pause:
-            last_open = time.time()
-            fails += 1
-            log(f"вкладка-сторож не опрашивает мост, открываю заново (попытка {fails})")
-            open_keepalive()
+        last_open = now
+        opens += 1
+        warned = False
+        log(f"вкладка-сторож {why}, открываю заново (попытка {opens})")
+        open_keepalive()
 
         time.sleep(30)
 
