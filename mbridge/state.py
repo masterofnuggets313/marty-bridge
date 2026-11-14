@@ -63,6 +63,24 @@ def log_path(name: str) -> Path:
     return home() / name
 
 
+def _loadable(folder: Path) -> bool:
+    """Годится ли папка для загрузки в браузер.
+
+    Chrome отказывается грузить расширение, если на верхнем уровне есть имена,
+    начинающиеся с подчеркивания: `__pycache__` рядом с манифестом ломает
+    установку с ошибкой «Filenames starting with _ are reserved».
+    """
+    try:
+        if not (folder / "manifest.json").exists():
+            return False
+        for entry in folder.iterdir():
+            if entry.name.startswith(("_", ".")):
+                return False
+    except OSError:
+        return False
+    return True
+
+
 def extension_dir() -> str:
     """Папка расширения, которую человек грузит в браузер.
 
@@ -79,9 +97,6 @@ def extension_dir() -> str:
         pass
     roots.append(Path.cwd() / "extension")
     for candidate in roots:
-        try:
-            if (candidate / "manifest.json").exists():
-                return str(candidate)
-        except OSError:
-            continue
+        if _loadable(candidate):
+            return str(candidate)
     return ""

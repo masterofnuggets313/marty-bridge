@@ -207,3 +207,20 @@ def test_extension_dir_found_in_repo(monkeypatch):
     folder = state.extension_dir()
     assert folder.endswith("extension")
     assert (Path(folder) / "manifest.json").exists()
+
+
+def test_loadable_rejects_underscore_entries(tmp_path):
+    """Chrome не грузит папку, где рядом с манифестом лежит __pycache__."""
+    bad = tmp_path / "bad"
+    bad.mkdir()
+    (bad / "manifest.json").write_text("{}", encoding="utf-8")
+    assert state._loadable(bad) is True
+    (bad / "__pycache__").mkdir()
+    assert state._loadable(bad) is False
+
+
+def test_loadable_rejects_folder_without_manifest(tmp_path):
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    assert state._loadable(empty) is False
+    assert state._loadable(tmp_path / "нет такой") is False

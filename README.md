@@ -82,6 +82,8 @@ pip install -e ".[telegram]"
 
 Путь к папке печатает `mb status`, если расширение еще не подключено.
 
+Браузер отказывается грузить папку, где на верхнем уровне есть имена, начинающиеся с подчеркивания: `__pycache__`, `_metadata`. Ошибка выглядит так: «Cannot load extension with file or directory name `__pycache__`. Filenames starting with `_` are reserved by the system». Поэтому расширение грузите именно из папки `extension`, а не из каталога, где рядом лежат скрипты на Python.
+
 **3. Мост.**
 
 ```bash
